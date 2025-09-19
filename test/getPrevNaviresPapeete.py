@@ -1,18 +1,18 @@
-"""Scraper Playwright pour les prévisions de navires à Papeete.
+﻿"""Scraper Playwright pour les prÃ©visions de navires Ã  Papeete.
 
-Ce script ouvre la page publique et extrait le tableau principal des prévisions
-de navires (y compris si le tableau se trouve dans un iframe). Les données
-peuvent être affichées en JSON sur stdout, ou exportées en CSV/JSON via options.
+Ce script ouvre la page publique et extrait le tableau principal des prÃ©visions
+de navires (y compris si le tableau se trouve dans un iframe). Les donnÃ©es
+peuvent Ãªtre affichÃ©es en JSON sur stdout, ou exportÃ©es en CSV/JSON via options.
 
-Exemples d'exécution:
+Exemples d'exÃ©cution:
   - Afficher en JSON:  python getPrevNaviresPapeete.py
   - Exporter fichiers: python getPrevNaviresPapeete.py --json out.json --csv out.csv
-  - Debug détaillé:    python getPrevNaviresPapeete.py --log-level DEBUG --headful
+  - Debug dÃ©taillÃ©:    python getPrevNaviresPapeete.py --log-level DEBUG --headful
 
 Notes:
-  - Le script choisit automatiquement le « meilleur » tableau selon un score
-    simple (nb de lignes/colonnes + présence d'entêtes).
-  - Les logs sont configurables via --log-level (DEBUG à CRITICAL).
+  - Le script choisit automatiquement le Â« meilleur Â» tableau selon un score
+    simple (nb de lignes/colonnes + prÃ©sence d'entÃªtes).
+  - Les logs sont configurables via --log-level (DEBUG Ã  CRITICAL).
 """
 
 import argparse
@@ -29,16 +29,39 @@ from playwright.sync_api import sync_playwright
 
 logger = logging.getLogger(__name__)
 
+# Liste des en-têtes à ignorer dans la sortie
+IGNORED_HEADERS = {
+    "N° Escale",
+    "N° Voyage",
+    "agent",
+    "acconier",
+}
+
+# Normalise un en-tête: minuscule, espaces uniques, retire les caractères °/º
+def _normalize_header(name: str) -> str:
+    base = " ".join((name or "").lower().split())
+    return base.replace("\u00b0", "").replace("\u00ba", "").strip()
+
+# Indique si un en-tête doit être ignoré
+def _should_ignore_header(name: str) -> bool:
+    norm = _normalize_header(name)
+    for h in IGNORED_HEADERS:
+        if _normalize_header(h) == norm:
+            return True
+    return False
+
+
+
 
 # Recupere les tableaux detectes dans un frame Playwright.
 def _collect_tables_from_frame(frame) -> List[Dict[str, Any]]:
-    """Collecte tous les tableaux HTML présents dans un frame.
+    """Collecte tous les tableaux HTML prÃ©sents dans un frame.
 
     Retourne une liste de dictionnaires contenant:
-      - headers: en-têtes détectés (si disponibles)
+      - headers: en-tÃªtes dÃ©tectÃ©s (si disponibles)
       - rows: lignes du tableau (listes de cellules en texte)
-      - rowCount/colCount: dimensions estimées
-      - score: métrique simple pour classer les tableaux
+      - rowCount/colCount: dimensions estimÃ©es
+      - score: mÃ©trique simple pour classer les tableaux
     """
     try:
         tables = frame.evaluate(
@@ -50,7 +73,7 @@ def _collect_tables_from_frame(frame) -> List[Dict[str, Any]]:
   }
 
   const results = [];
-  // Récupère tous les <table> du document
+  // RÃ©cupÃ¨re tous les <table> du document
   const nodeTables = Array.from(document.querySelectorAll('table'));
   for (const tbl of nodeTables) {
     const caption = tbl.caption ? tbl.caption.innerText.trim() : null;
@@ -60,7 +83,7 @@ def _collect_tables_from_frame(frame) -> List[Dict[str, Any]]:
     const headerRows = Array.from(tbl.querySelectorAll('thead tr'));
     let headers = [];
     if (headerRows.length) {
-      // Utilise la dernière ligne d'entête (souvent la plus détaillée)
+      // Utilise la derniÃ¨re ligne d'entÃªte (souvent la plus dÃ©taillÃ©e)
       headers = Array.from(headerRows[headerRows.length - 1].cells).map(getText);
     } else {
       const thRow = tbl.querySelector('tr th') ? tbl.querySelector('tr th').parentElement : null;
@@ -73,7 +96,7 @@ def _collect_tables_from_frame(frame) -> List[Dict[str, Any]]:
     if (bodyTrs.length === 0) {
       bodyTrs = Array.from(tbl.querySelectorAll('tr'));
       if (headers.length) {
-        // Retire la première ligne d'entête si présente
+        // Retire la premiÃ¨re ligne d'entÃªte si prÃ©sente
         const headerIndex = bodyTrs.findIndex(tr => tr.querySelector('th'));
         if (headerIndex !== -1) bodyTrs.splice(headerIndex, 1);
       }
@@ -85,7 +108,7 @@ def _collect_tables_from_frame(frame) -> List[Dict[str, Any]]:
 
     const colCount = rows[0] ? rows[0].length : (headers.length || 0);
     const rowCount = rows.length;
-    // Score simple: favorise les grands tableaux et la présence d'en-tête
+    // Score simple: favorise les grands tableaux et la prÃ©sence d'en-tÃªte
     const score = rowCount * (colCount || 1) + (headers.length ? 5 : 0);
     results.push({ caption, id, classes, headers, rows, rowCount, colCount, score });
   }
@@ -95,7 +118,7 @@ def _collect_tables_from_frame(frame) -> List[Dict[str, Any]]:
         )
         return tables or []
     except Exception:
-        logger.debug("Aucune table ou erreur lors de l'évaluation dans le frame: %s", frame.url)
+        logger.debug("Aucune table ou erreur lors de l'Ã©valuation dans le frame: %s", frame.url)
         return []
 
 
@@ -103,15 +126,15 @@ def _collect_tables_from_frame(frame) -> List[Dict[str, Any]]:
 def _find_best_table(page) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Parcourt la page et tous ses frames pour trouver le meilleur tableau.
 
-    Renvoie un tuple (tableau_sélectionné, tous_les_candidats). Si aucun tableau
-    plausible n'est trouvé, renvoie (None, []).
+    Renvoie un tuple (tableau_sÃ©lectionnÃ©, tous_les_candidats). Si aucun tableau
+    plausible n'est trouvÃ©, renvoie (None, []).
     """
     candidates: List[Dict[str, Any]] = []
     for frame in page.frames:
         tables = _collect_tables_from_frame(frame)
         for t in tables:
             t["frame_url"] = frame.url
-        logger.debug("%d table(s) détectée(s) dans le frame: %s", len(tables), frame.url)
+        logger.debug("%d table(s) dÃ©tectÃ©e(s) dans le frame: %s", len(tables), frame.url)
         candidates.extend(tables)
 
     plausible = [
@@ -120,24 +143,24 @@ def _find_best_table(page) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         if t.get("rowCount", 0) >= 1
         and (t.get("colCount", 0) >= 2 or (t.get("headers") and len(t.get("headers")) >= 2))
     ]
-    # Si aucun tableau « plausible », on retombe sur tous les candidats
+    # Si aucun tableau Â« plausible Â», on retombe sur tous les candidats
     if not plausible and candidates:
         plausible = candidates
 
     if not plausible:
         return None, []
 
-    # Classement décroissant par score, puis par dimensions
+    # Classement dÃ©croissant par score, puis par dimensions
     plausible.sort(key=lambda t: (t.get("score", 0), t.get("rowCount", 0), t.get("colCount", 0)), reverse=True)
     return plausible[0], plausible
 
 
 # Convertit le tableau retenu en dictionnaires lignes/colonnes.
 def _to_records(table: Dict[str, Any]) -> Tuple[List[str], List[Dict[str, str]]]:
-    """Convertit un tableau brut en enregistrements structurés.
+    """Convertit un tableau brut en enregistrements structurÃ©s.
 
-    - Si aucun en-tête n'est détecté, génère des noms « col_1 », « col_2 », ...
-    - Tronque/concatène les cellules excédentaires pour s'aligner sur les entêtes
+    - Si aucun en-tÃªte n'est dÃ©tectÃ©, gÃ©nÃ¨re des noms Â« col_1 Â», Â« col_2 Â», ...
+    - Tronque/concatÃ¨ne les cellules excÃ©dentaires pour s'aligner sur les entÃªtes
     """
     headers = table.get("headers") or []
     rows: List[List[str]] = table.get("rows", [])
@@ -145,26 +168,32 @@ def _to_records(table: Dict[str, Any]) -> Tuple[List[str], List[Dict[str, str]]]
         maxcols = max((len(r) for r in rows), default=0)
         headers = [f"col_{i+1}" for i in range(maxcols)]
 
+    # Indices des colonnes à conserver après filtrage
+    # Indices des colonnes à conserver après filtrage
+    orig_len = len(headers)
+    keep_indices = [i for i, h in enumerate(headers) if not _should_ignore_header(h)]
+    headers = [headers[i] for i in keep_indices]
     records: List[Dict[str, str]] = []
     for r in rows:
-        if len(r) < len(headers):
-            r = r + [""] * (len(headers) - len(r))
-        elif len(r) > len(headers):
-            r = r[: len(headers) - 1] + [" | ".join(r[len(headers) - 1 :])]
+        if len(r) < orig_len:
+            r = r + [""] * (orig_len - len(r))
+        elif len(r) > orig_len:
+            r = r[: orig_len - 1] + [" | ".join(r[orig_len - 1 :])]
+        r = [r[i] for i in keep_indices]
         records.append(dict(zip(headers, r)))
     return headers, records
 
 
 # Point dentree CLI qui orchestre le scraping et les sorties.
 def main() -> None:
-    """Point d'entrée CLI: parse les arguments, lance le navigateur, extrait et exporte."""
+    """Point d'entrÃ©e CLI: parse les arguments, lance le navigateur, extrait et exporte."""
     parser = argparse.ArgumentParser(
-        description="Scraper Playwright pour la page 'Prévisions navires' (Port de Papeete)."
+        description="Scraper Playwright pour la page 'PrÃ©visions navires' (Port de Papeete)."
     )
     parser.add_argument(
         "--url",
         default="https://www.portdepapeete.pf/fr/previsions-navires",
-        help="URL à parser",
+        help="URL Ã  parser",
     )
     parser.add_argument("--timeout", type=int, default=45000, help="Timeout navigation en ms")
     parser.add_argument("--headful", action="store_true", help="Lancer le navigateur en mode visible")
@@ -173,22 +202,22 @@ def main() -> None:
     parser.add_argument(
         "--print", action="store_true", help="Afficher les enregistrements dans la console"
     )
-    # Filtrage par type (par défaut: PAQUEBOT). Utiliser --no-type-filter pour tout garder
+    # Filtrage par type (par dÃ©faut: PAQUEBOT). Utiliser --no-type-filter pour tout garder
     parser.add_argument(
         "--type-only",
         default="PAQUEBOT",
-        help="Filtrer sur un type (défaut: PAQUEBOT)",
+        help="Filtrer sur un type (dÃ©faut: PAQUEBOT)",
     )
     parser.add_argument(
         "--no-type-filter",
         action="store_true",
-        help="Désactive le filtrage par type",
+        help="DÃ©sactive le filtrage par type",
     )
     parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Niveau de logs (défaut: INFO)",
+        help="Niveau de logs (dÃ©faut: INFO)",
     )
 
     args = parser.parse_args()
@@ -202,20 +231,20 @@ def main() -> None:
     logger.debug("Arguments: %s", vars(args))
 
     with sync_playwright() as p:
-        # Lancement de Chromium (headless par défaut) et création d'un contexte/page
-        logger.info("Démarrage de Chromium (headless=%s)", str(not args.headful).lower())
+        # Lancement de Chromium (headless par dÃ©faut) et crÃ©ation d'un contexte/page
+        logger.info("DÃ©marrage de Chromium (headless=%s)", str(not args.headful).lower())
         browser = p.chromium.launch(headless=not args.headful)
         context = browser.new_context(locale="fr-FR")
         page = context.new_page()
         try:
             logger.info("Navigation vers l'URL: %s", args.url)
-            # On attend le state « networkidle » pour maximiser les chances que
-            # le tableau soit peuplé. Certains contenus peuvent encore arriver ensuite.
+            # On attend le state Â« networkidle Â» pour maximiser les chances que
+            # le tableau soit peuplÃ©. Certains contenus peuvent encore arriver ensuite.
             page.goto(args.url, wait_until="networkidle", timeout=args.timeout)
-            logger.debug("Navigation terminée (networkidle)")
+            logger.debug("Navigation terminÃ©e (networkidle)")
         except PlaywrightTimeoutError:
             logger.warning(
-                "Timeout atteint lors du chargement de la page; tentative de récupération des données malgré tout."
+                "Timeout atteint lors du chargement de la page; tentative de rÃ©cupÃ©ration des donnÃ©es malgrÃ© tout."
             )
 
         best = None
@@ -224,7 +253,7 @@ def main() -> None:
             best, _all = _find_best_table(page)
             if best:
                 logger.info(
-                    "Tableau sélectionné: id=%s, classes=%s, lignes=%s, colonnes=%s",
+                    "Tableau sÃ©lectionnÃ©: id=%s, classes=%s, lignes=%s, colonnes=%s",
                     best.get("id"),
                     best.get("classes"),
                     best.get("rowCount"),
@@ -234,15 +263,15 @@ def main() -> None:
             time.sleep(1.0)
 
         if not best:
-            logger.error("Aucun tableau détecté sur la page (ou dans ses iframes).")
+            logger.error("Aucun tableau dÃ©tectÃ© sur la page (ou dans ses iframes).")
             context.close()
             browser.close()
             sys.exit(2)
 
-        # Mise en forme des données (entêtes + enregistrements)
+        # Mise en forme des donnÃ©es (entÃªtes + enregistrements)
         headers, records = _to_records(best)
-        logger.info("Extraction terminée: %d enregistrements", len(records))
-        # Détermine la colonne « type » et applique le filtrage si demandé
+        logger.info("Extraction terminÃ©e: %d enregistrements", len(records))
+        # DÃ©termine la colonne Â« type Â» et applique le filtrage si demandÃ©
         # Repere la colonne portante pour le type de navire.
         def _guess_type_field(hdrs: List[str]):
             for h in hdrs:
@@ -251,9 +280,9 @@ def main() -> None:
             return None
         type_field = _guess_type_field(headers)
         if type_field:
-            logger.debug("Colonne de type détectée: %s", type_field)
+            logger.debug("Colonne de type dÃ©tectÃ©e: %s", type_field)
         else:
-            logger.warning("Aucune colonne contenant 'type' détectée: filtrage ignoré")
+            logger.warning("Aucune colonne contenant 'type' dÃ©tectÃ©e: filtrage ignorÃ©")
         if not args.no_type_filter and type_field:
             before = len(records)
             wanted = (args.type_only or "").strip().upper()
@@ -261,7 +290,7 @@ def main() -> None:
                 records = [r for r in records if r.get(type_field, "").strip().upper() == wanted]
                 logger.info("Filtrage par type='%s': %d -> %d enregistrements", wanted, before, len(records))
             else:
-                logger.debug("Type cible vide: aucun filtrage appliqué")
+                logger.debug("Type cible vide: aucun filtrage appliquÃ©")
         meta = {
             "source_url": args.url,
             "frame_url": best.get("frame_url"),
@@ -273,12 +302,12 @@ def main() -> None:
         }
 
         if args.json:
-            logger.info("Écriture JSON: %s", args.json)
+            logger.info("Ã‰criture JSON: %s", args.json)
             with open(args.json, "w", encoding="utf-8") as f:
                 json.dump({"meta": meta, "records": records}, f, ensure_ascii=False, indent=2)
 
         if args.csv:
-            logger.info("Écriture CSV: %s", args.csv)
+            logger.info("Ã‰criture CSV: %s", args.csv)
             with open(args.csv, "w", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=headers)
                 writer.writeheader()
