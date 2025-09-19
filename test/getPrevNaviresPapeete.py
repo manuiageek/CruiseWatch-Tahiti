@@ -30,6 +30,7 @@ from playwright.sync_api import sync_playwright
 logger = logging.getLogger(__name__)
 
 
+# Recupere les tableaux detectes dans un frame Playwright.
 def _collect_tables_from_frame(frame) -> List[Dict[str, Any]]:
     """Collecte tous les tableaux HTML présents dans un frame.
 
@@ -98,6 +99,7 @@ def _collect_tables_from_frame(frame) -> List[Dict[str, Any]]:
         return []
 
 
+# Selectionne le meilleur tableau a partir des candidats.
 def _find_best_table(page) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Parcourt la page et tous ses frames pour trouver le meilleur tableau.
 
@@ -130,6 +132,7 @@ def _find_best_table(page) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     return plausible[0], plausible
 
 
+# Convertit le tableau retenu en dictionnaires lignes/colonnes.
 def _to_records(table: Dict[str, Any]) -> Tuple[List[str], List[Dict[str, str]]]:
     """Convertit un tableau brut en enregistrements structurés.
 
@@ -152,6 +155,7 @@ def _to_records(table: Dict[str, Any]) -> Tuple[List[str], List[Dict[str, str]]]
     return headers, records
 
 
+# Point dentree CLI qui orchestre le scraping et les sorties.
 def main() -> None:
     """Point d'entrée CLI: parse les arguments, lance le navigateur, extrait et exporte."""
     parser = argparse.ArgumentParser(
@@ -239,6 +243,7 @@ def main() -> None:
         headers, records = _to_records(best)
         logger.info("Extraction terminée: %d enregistrements", len(records))
         # Détermine la colonne « type » et applique le filtrage si demandé
+        # Repere la colonne portante pour le type de navire.
         def _guess_type_field(hdrs: List[str]):
             for h in hdrs:
                 if "type" in h.lower():
